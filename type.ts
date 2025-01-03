@@ -1,18 +1,16 @@
-import { mark, nextToken, rollback, Token, Identifier } from "./lex.js";
-
-type SimpleType = { kind: "ZERO" | "ONE" } | { kind: "UN", level: number } | Identifier
-export type Type = SimpleType | { kind: "PI", ident: Identifier, left: SimpleType, right: Type } | { kind: "FUNCTION", left: SimpleType, right: Type };
+import { identifier, one, pi, SimpleType, Type, un, zero } from "./ast.js";
+import { mark, nextToken, rollback, Token } from "./lex.js";
 
 function tryGetSimpleType(token = nextToken()): SimpleType | null {
     switch (token.kind) {
-        case "UN":
-            return { kind: "UN", level: token.value };
         case "ZERO":
-            return { kind: "ZERO" };
+            return zero();
         case "ONE":
-            return { kind: "ONE" };
+            return one();
+        case "UN":
+            return un(token.value);
         case "IDENTIFIER":
-            return { kind: "IDENTIFIER", value: token.value };
+            return identifier(token.value);
     }
 
     return null;
@@ -45,19 +43,10 @@ function getPostfixOnType(base: SimpleType, peek: Token): Type {
         const left = getSimpleType();
         const token = nextToken();
         if (token.kind === "ARROW") {
-            return {
-                kind: "PI",
-                ident: base,
-                left,
-                right: getType()
-            };
+            return pi(base, left, getType());
         }
     } else if (peek.kind === "ARROW") {
-        return {
-            kind: "FUNCTION",
-            left: base,
-            right: getType()
-        };
+        return pi(null, base, getType());
     }
 
     throw false;

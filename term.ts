@@ -1,7 +1,48 @@
-import { Identifier, nextToken } from "./lex.js";
-import { tryGetType, Type } from "./type.js";
+import { abstraction, call, identifier, singleton, Term } from "./ast.js";
+import { mark, nextToken, rollback } from "./lex.js";
+import { tryGetType } from "./type.js";
 
-export type Term = Type | { kind: "SINGLETON" } | { kind: "ABSTRACTION", ident: Identifier, body: Term };
+function tryGetSimpleTerm(token = nextToken()): Term | null {
+    if (token.kind === "STAR") {
+        return singleton();
+    } else if (token.kind === "LPAREN") {
+        const term = getTerm();
+
+        if (nextToken().kind !== "RPAREN") {
+            throw new Error("expected right paren");
+        }
+
+        return term;
+    }
+
+    return null;
+}
+
+function tryGetPrimaryTerm(token = nextToken()): Term | null {
+    let term = tryGetSimpleTerm(token);
+    if (term === null) {
+        return null;
+    }
+
+    while (true) {
+        const p0 = mark();
+        const peek = nextToken();
+
+        if (peek.kind === "LPAREN") {
+            term = call(term, getTerm());
+
+            if (nextToken().kind !== "RPAREN") {
+                throw new Error("expected right paren");
+            }
+        } else {
+            rollback(p0);
+            break;
+        }
+    }
+
+    return term;
+}
+
 
 export function getTerm(token = nextToken()): Term {
     const type = tryGetType(token);
@@ -9,11 +50,15 @@ export function getTerm(token = nextToken()): Term {
         return type;
     }
 
-    if (token.kind === "STAR") {
-        return { kind: "SINGLETON" };
-    } else if (token.kind === "BACKSLASH") {
+    const primaryTerm = tryGetPrimaryTerm(token);
+    if (primaryTerm !== null) {
+        return primaryTerm;
+    }
+
+    if (token.kind === "BACKSLASH") {
         return getAbstraction();
     }
+
     throw new Error(`cannot parse token ${token.kind} for term`)
 }
 
@@ -24,6 +69,6 @@ function getAbstraction(): Term {
     const dot = nextToken();
     if (dot.kind !== "DOT") throw new Error(`malformed abstraction: expected DOT, found ${dot.kind}`);
 
-    const term = getTerm();
-    return { kind: "ABSTRACTION", ident, body: term };
+    const body = getTerm();
+    return abstraction(identifier(ident), body);
 }

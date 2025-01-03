@@ -4,9 +4,8 @@ export const EOF: Token = { kind: "EOF" };
 
 const text = await readFile("./main.hott", "utf8");
 
-type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "COLONEQUAL" | "COLON" | "DOT";
-export type Identifier = { kind: "IDENTIFIER", value: string };
-export type Token = { kind: SimpleTokenName } | { kind: "UN", value: number } | Identifier;
+type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "EQUAL" | "EQUALEQUAL" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN";
+export type Token = { kind: SimpleTokenName } | { kind: "UN", value: number } | { kind: "IDENTIFIER", value: string };
 
 let cachedToken: Token | null = null;
 function popCachedToken() {
@@ -79,6 +78,19 @@ function lexNonIdentTokenFromStart(): Token | null {
         case ".":
             p++;
             return { kind: "DOT" };
+        case "(":
+            p++;
+            return { kind: "LPAREN" };
+        case ")":
+            p++;
+            return { kind: "RPAREN" };
+        case "=":
+            p++;
+            if (text[p] === "=") {
+                p++;
+                return { kind: "EQUALEQUAL" };
+            }
+            return { kind: "EQUAL" };
     }
 
     return null;
