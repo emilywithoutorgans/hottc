@@ -1,5 +1,5 @@
 import SparkMD5 from "spark-md5";
-import { ensureId, Scope } from "./scope.js";
+import { Scope, SymbolTable } from "./scope.js";
 
 type HashedASTNode = { hash: string };
 type Identifier = { kind: "IDENTIFIER", value: string } & HashedASTNode;
@@ -32,10 +32,10 @@ export function un(level: number): Un & HashedASTNode {
     return { kind: "UN", level, hash: hash.end() };
 }
 
-export function identifier(value: string, scope: Scope<string, number>): Identifier {
+export function identifier(value: string, scope: SymbolTable): Identifier {
     const hash = new SparkMD5();
     hash.append("IDENTIFIER");
-    hash.append(ensureId(scope.lookup(value)).toString());
+    hash.append(scope.lookupOrAdd(value).toString());
     return { kind: "IDENTIFIER", value, hash: hash.end() };
 }
 

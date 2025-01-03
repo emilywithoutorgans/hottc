@@ -1,5 +1,6 @@
 import { Term, Type, un } from "./ast.js";
 import { nextToken, mark, rollback, EOF } from "./lex.js";
+import { Scope, SymbolTable } from "./scope.js";
 import { getTerm } from "./term.js";
 import { tryGetType } from "./type.js";
 
@@ -154,14 +155,16 @@ function judgement() {
     }
 
     // get the term
-    const term = getTerm(start);
+    const termScope: SymbolTable = new SymbolTable();
+    const term = getTerm(termScope, start);
 
     // get the operator after the term
     const token = nextToken();
     if (token === null) {
         return false;
     } else if (token.kind === "COLON") {
-        const type = tryGetType();
+        const typeScope: SymbolTable = new SymbolTable();
+        const type = tryGetType(typeScope);
         if (type === null) {
             throw new Error("malformed judgement, invalid type after :");
         }
@@ -169,6 +172,7 @@ function judgement() {
         // check the judgement
         if (check(term, type, {})) {
             console.log("ok");
+            console.log(term, type);
         } else {
             console.log(term, type);
             throw new Error("fail");

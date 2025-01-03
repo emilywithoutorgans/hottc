@@ -24,11 +24,22 @@ export class Scope<K, V> {
     }
 }
 
-let counter = 0;
-export function id() {
-    return counter++;
-}
+export class SymbolTable extends Scope<string, number> {
+    private next: number;
 
-export function ensureId(n: number | undefined) {
-    return n === undefined ? id() : n;
+    constructor(parent?: SymbolTable, map: Map<string, number> = new Map()) {
+        super(parent, map);
+        this.next = parent?.next ?? 0;
+    }
+
+    add(name: string) {
+        const id = this.next;
+        this.next += 1;
+        this.set(name, id);
+        return id;
+    }
+
+    lookupOrAdd(name: string) {
+        return this.lookup(name) ?? this.add(name);
+    }
 }

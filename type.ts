@@ -1,7 +1,8 @@
 import { identifier, one, pi, SimpleType, Type, un, zero } from "./ast.js";
 import { mark, nextToken, rollback, Token } from "./lex.js";
+import { SymbolTable } from "./scope.js";
 
-function tryGetSimpleType(token = nextToken()): SimpleType | null {
+function tryGetSimpleType(scope: SymbolTable, token = nextToken()): SimpleType | null {
     switch (token.kind) {
         case "ZERO":
             return zero();
@@ -10,14 +11,14 @@ function tryGetSimpleType(token = nextToken()): SimpleType | null {
         case "UN":
             return un(token.value);
         case "IDENTIFIER":
-            return identifier(token.value);
+            return identifier(token.value, scope);
     }
 
     return null;
 }
 
-export function tryGetType(token = nextToken()): Type | null {
-    const base = tryGetSimpleType(token);
+export function tryGetType(scope: SymbolTable, token = nextToken()): Type | null {
+    const base = tryGetSimpleType(scope, token);
     if (base === null) {
         return null;
     }
@@ -28,7 +29,7 @@ export function tryGetType(token = nextToken()): Type | null {
     // if it's a pi type or function for example
     if (peek !== null) {
         try {
-            return getPostfixOnType(base, peek);
+            return getPostfixOnType(scope, base, peek);
         } catch (e) {
             if (e !== false) throw e;
         }
@@ -38,28 +39,33 @@ export function tryGetType(token = nextToken()): Type | null {
     return base;
 }
 
-function getPostfixOnType(base: SimpleType, peek: Token): Type {
+function getPostfixOnType(scope: SymbolTable, base: SimpleType, peek: Token): Type {
     if (base.kind === "IDENTIFIER" && peek.kind === "COLON") {
-        const left = getSimpleType();
+        scope.push();
+        const left = getSimpleType(scope);
         const token = nextToken();
         if (token.kind === "ARROW") {
-            return pi(base, left, getType());
+            const right = getType(scope);
+            scope.pop();
+            return pi(base, left, right);
+        } else {
+            scope.pop();
         }
     } else if (peek.kind === "ARROW") {
-        return pi(null, base, getType());
+        return pi(null, base, getType(scope));
     }
 
     throw false;
 }
 
-function getType() {
-    const right = tryGetType();
+function getType(scope: SymbolTable) {
+    const right = tryGetType(scope);
     if (right === null) throw new Error("expected type on the right of ->");
     return right;
 }
 
-function getSimpleType() {
-    const type = tryGetSimpleType();
+function getSimpleType(scope: SymbolTable) {
+    const type = tryGetSimpleType(scope);
     if (type === null) throw false;
     return type;
 }
