@@ -1,4 +1,4 @@
-import { nextToken, mark, rollback, EOF, Identifier } from "./lex.js";
+import { nextToken, mark, rollback, EOF, Identifier, token } from "./lex.js";
 import { getTerm, Term } from "./term.js";
 import { tryGetType, Type } from "./type.js";
 
@@ -128,19 +128,20 @@ function checkEq(left: Term, right: Term, context: Record<string, string>) {
 
 function judgement() {
     // check if the start is null
-    const start = nextToken();
+    const start = token();
     if (start === EOF) {
         return false;
     }
 
     // get the term
-    const term = getTerm(start);
+    const term = getTerm();
 
     // get the operator after the term
-    const token = nextToken();
-    if (token === null) {
+    const tk = token();
+    if (tk === null) {
         return false;
-    } else if (token.kind === "COLON") {
+    } else if (tk.kind === "COLON") {
+        nextToken();
         const type = tryGetType();
         if (type === null) {
             throw new Error("malformed judgement, invalid type after :");
@@ -153,16 +154,18 @@ function judgement() {
             throw new Error("fail");
         }
     } else {
-        throw new Error(`malformed judgement, got ${token.kind}`);
+        throw new Error(`malformed judgement, got ${tk.kind}`);
     }
 
     // check that it ends with a dot
-    const dot = nextToken();
+    const dot = token();
     if (dot === null) {
         return false;
     } else if (dot.kind !== "DOT") {
         throw new Error(`expected DOT, got ${dot.kind}`);
     }
+
+    nextToken();
 
     return true;
 }

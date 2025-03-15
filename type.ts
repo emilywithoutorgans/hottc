@@ -1,31 +1,32 @@
-import { mark, nextToken, rollback, Token, Identifier } from "./lex.js";
+import { mark, nextToken, rollback, Token, Identifier, token, andMove } from "./lex.js";
 
 type SimpleType = { kind: "ZERO" | "ONE" } | { kind: "UN", level: number } | Identifier
 export type Type = SimpleType | { kind: "PI", ident?: Identifier, left: SimpleType, right: Type };
 
-function tryGetSimpleType(token = nextToken()): SimpleType | null {
-    switch (token.kind) {
+function tryGetSimpleType(): SimpleType | null {
+    const tk = token();
+    switch (tk.kind) {
         case "UN":
-            return { kind: "UN", level: token.value };
+            return andMove({ kind: "UN", level: tk.value });
         case "ZERO":
-            return { kind: "ZERO" };
+            return andMove({ kind: "ZERO" });
         case "ONE":
-            return { kind: "ONE" };
+            return andMove({ kind: "ONE" });
         case "IDENTIFIER":
-            return { kind: "IDENTIFIER", value: token.value };
+            return andMove({ kind: "IDENTIFIER", value: tk.value });
     }
 
     return null;
 }
 
-export function tryGetType(token = nextToken()): Type | null {
-    const base = tryGetSimpleType(token);
+export function tryGetType(): Type | null {
+    const base = tryGetSimpleType();
     if (base === null) {
         return null;
     }
 
+    const peek = token();
     const p0 = mark();
-    const peek = nextToken();
 
     // if it's a pi type or function for example
     if (peek !== null) {
@@ -36,15 +37,17 @@ export function tryGetType(token = nextToken()): Type | null {
         }
     }
 
-    rollback(p0);
+    rollback(p0); // unnecessary in some cases
     return base;
 }
 
 function getPostfixOnType(base: SimpleType, peek: Token): Type {
     if (base.kind === "IDENTIFIER" && peek.kind === "COLON") {
+        nextToken();
+
         const left = getSimpleType();
-        const token = nextToken();
-        if (token.kind === "ARROW") {
+        if (token().kind === "ARROW") {
+            nextToken();
             return {
                 kind: "PI",
                 ident: base,
@@ -53,6 +56,7 @@ function getPostfixOnType(base: SimpleType, peek: Token): Type {
             };
         }
     } else if (peek.kind === "ARROW") {
+        nextToken();
         return {
             kind: "PI",
             left: base,

@@ -4,7 +4,7 @@ export const EOF: Token = { kind: "EOF" };
 
 const text = await readFile("./main.hott", "utf8");
 
-type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "COLONEQUAL" | "COLON" | "DOT";
+type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN" | "COMMA";
 export type Identifier = { kind: "IDENTIFIER", value: string };
 export type Token = { kind: SimpleTokenName } | { kind: "UN", value: number } | Identifier;
 
@@ -15,8 +15,9 @@ function popCachedToken() {
     return token;
 }
 
-export function nextToken(): Token {
-    return popCachedToken() || lexToken();
+export function andMove<T>(t: T): T {
+    nextToken();
+    return t;
 }
 
 function lexToken(): Token {
@@ -79,6 +80,15 @@ function lexNonIdentTokenFromStart(): Token | null {
         case ".":
             p++;
             return { kind: "DOT" };
+        case "(":
+            p++;
+            return { kind: "LPAREN" };
+        case ")":
+            p++;
+            return { kind: "RPAREN" };
+        case ",":
+            p++;
+            return { kind: "COMMA" };
     }
 
     return null;
@@ -105,6 +115,15 @@ function lexIdent(): Token {
     }
 
     return { kind: 'IDENTIFIER', value: text.slice(start, end) };
+}
+
+let currentToken: Token = lexToken();
+export function token(): Token {
+    return currentToken;
+}
+
+export function nextToken(): Token {
+    return (currentToken = popCachedToken() || lexToken());
 }
 
 type State = [number, Token | null];
