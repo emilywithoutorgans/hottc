@@ -34,7 +34,7 @@ function check(term: Term, type: Type, context: Context): true | void {
     if (term.kind === "ABSTRACTION") {
         // bug: variable leaks into type scope in function
         // \x. x: U1 -> x
-        if (type.kind === "PI" || type.kind === "FUNCTION") {
+        if (type.kind === "PI") {
             // pi introduction
             // (x: A => b: B) => \x. b: x: A -> B
             console.log("used pi introduction");
@@ -70,21 +70,14 @@ function check(term: Term, type: Type, context: Context): true | void {
             // check that A's type universe is equal to the pi type universe
             if (check(term.left, type, context)) {
                 // add x: A to the context
-                const newContext: Context = { ...context, [term.ident.value]: { kind: "TYPE", value: term.left } };
+                const newContext: Context = term.ident ? { ...context, [term.ident.value]: { kind: "TYPE", value: term.left } } : context;
 
                 // check that B's type universe is equal to the pi type universe
                 if (check(term.right, type, newContext)) {
                     return true;
                 }
             }
-        } else if (term.kind === "FUNCTION") {
-            // pi former (without additional context)
-            // (A: U_i, B: U_i) => (A -> B): U_i
-            console.log("used function former");
-            return check(term.left, type, context) &&
-                check(term.right, type, context)
         }
-
 
         if (type.level === 0) {
             // small types
@@ -111,15 +104,11 @@ function checkEq(left: Term, right: Term, context: Record<string, string>) {
         if (left.level === right.level) {
             return true;
         }
-    } else if (left.kind === "FUNCTION" && right.kind === "FUNCTION") {
-        if (checkEq(left.left, right.left, context) && checkEq(left.right, right.right, context)) {
-            return true;
-        }
     } else if (left.kind === "PI" && right.kind === "PI") {
         // check the ident types
-        if (checkEq(left.left, right.left, context)) {
+        if (!!left.ident === !!right.ident && checkEq(left.left, right.left, context)) {
             // assume that the idents are equal
-            const newContext = { ...context, [left.ident.value]: right.ident.value };
+            const newContext = left.ident ? { ...context, [left.ident.value]: right.ident!.value } : context;
             if (checkEq(left.right, right.right, newContext)) {
                 return true;
             }

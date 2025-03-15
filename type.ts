@@ -1,7 +1,7 @@
 import { mark, nextToken, rollback, Token, Identifier } from "./lex.js";
 
 type SimpleType = { kind: "ZERO" | "ONE" } | { kind: "UN", level: number } | Identifier
-export type Type = SimpleType | { kind: "PI", ident: Identifier, left: SimpleType, right: Type } | { kind: "FUNCTION", left: SimpleType, right: Type };
+export type Type = SimpleType | { kind: "PI", ident?: Identifier, left: SimpleType, right: Type };
 
 function tryGetSimpleType(token = nextToken()): SimpleType | null {
     switch (token.kind) {
@@ -54,7 +54,7 @@ function getPostfixOnType(base: SimpleType, peek: Token): Type {
         }
     } else if (peek.kind === "ARROW") {
         return {
-            kind: "FUNCTION",
+            kind: "PI",
             left: base,
             right: getType()
         };
