@@ -1,65 +1,115 @@
-import { andMove, Identifier, nextToken, token } from "./lex.js";
-import { tryGetType, Type } from "./type.js";
+import { andMove, Identifier, mark, nextToken, rollback, Token, token } from "./lex.js";
 
-export type Term = Type | { kind: "SINGLETON" } | { kind: "ABSTRACTION", ident: Identifier, body: Term } | { kind: "CALL", base: Term, arg: Term };
+export type Term = { kind: "ZERO" | "ONE" } | { kind: "UN", level: number } | Identifier | { kind: "PI", ident?: Identifier, left: Term, right: Term } | { kind: "SINGLETON" } | { kind: "ABSTRACTION", ident: Identifier, type?: Term, body: Term } | { kind: "CALL", base: Term, arg: Term };
 
-function getPrefixTerm(): Term {
-    const type = tryGetType();
-    if (type !== null) {
-        return type;
-    }
-
+export function getTerm(forbidArrow: boolean = false): Term {
     const tk = token();
-    if (tk.kind === "STAR") {
-        return andMove({ kind: "SINGLETON" });
-    } else if (tk.kind === "BACKSLASH") {
-        return getAbstraction();
+
+    let result: Term;
+    switch (tk.kind) {
+        case "UN":
+            result = { kind: "UN", level: tk.value };
+            break;
+        case "ZERO":
+            result = { kind: "ZERO" };
+            break;
+        case "ONE":
+            result = { kind: "ONE" };
+            break;
+        case "IDENTIFIER":
+            result = { kind: "IDENTIFIER", value: tk.value };
+            break;
+        case "STAR":
+            result = { kind: "SINGLETON" };
+            break;
+        case "LPAREN": {
+            nextToken();
+            const term = getTerm();
+            if (token().kind !== "RPAREN") {
+                throw new Error("expected )");
+            }
+            result = term;
+            break;
+        }
+        case "BACKSLASH":
+            return getAbstraction();
+        default:
+            throw new Error(`cannot parse token ${tk.kind} for term`);
     }
-    throw new Error(`cannot parse token ${tk.kind} for term`);
-}
 
-function getAbstraction(): Term {
-    const ident = nextToken();
-    if (ident.kind !== "IDENTIFIER") throw new Error(`malformed abstraction: expected IDENTIFIER, found ${ident.kind}`);
-
-    const dot = nextToken();
-    if (dot.kind !== "DOT") throw new Error(`malformed abstraction: expected DOT, found ${dot.kind}`);
     nextToken();
 
-    const term = getTerm();
-    return andMove({ kind: "ABSTRACTION", ident, body: term });
-}
+    // test for -> and pi type
+    if (!forbidArrow) {
+        const peek = token();
+        const p0 = mark();
 
-export function getTerm(): Term {
-    let lhs = getPrefixTerm();
-    if (!checkCall(lhs)) {
-        return lhs;
+        if (peek !== null) {
+            try {
+                return getArrowOn(result, peek);
+            } catch (e) { }
+        }
+
+        rollback(p0); // unnecessary in some cases
     }
+
+    // test for calls
     while (token().kind === "LPAREN") {
         nextToken();
         do {
-            lhs = { kind: "CALL", base: lhs, arg: getTerm() };
+            result = { kind: "CALL", base: result, arg: getTerm() };
         } while (token().kind === "COMMA" && nextToken())
         if (token().kind !== "RPAREN") {
             throw new Error("expected )");
         }
         nextToken();
     }
-    return lhs;
+
+    return result;
 }
 
-function checkCall(base: Term): boolean {
-    switch (base.kind) {
-        case "ZERO":
-        case "ONE":
-        case "UN":
-        case "IDENTIFIER":
-        case "SINGLETON":
-        case "CALL":
-            return true;
-        case "ABSTRACTION":
-        case "PI":
-            return false;
+function getArrowOn(base: Term, peek: Token): Term {
+    if (base.kind === "IDENTIFIER" && peek.kind === "COLON") {
+        nextToken();
+
+        const left = getTerm(true);
+        if (token().kind === "ARROW") {
+            nextToken();
+            return {
+                kind: "PI",
+                ident: base,
+                left,
+                right: getTerm()
+            };
+        }
+    } else if (peek.kind === "ARROW") {
+        nextToken();
+        return {
+            kind: "PI",
+            left: base,
+            right: getTerm()
+        };
     }
+
+    throw false;
+}
+
+function getAbstraction(): Term {
+    const ident = nextToken();
+    if (ident.kind !== "IDENTIFIER") throw new Error(`malformed abstraction: expected IDENTIFIER, found ${ident.kind}`);
+
+    let type: Term | undefined = undefined;
+
+    if (nextToken().kind === "COLON") {
+        nextToken();
+        type = getTerm();
+    }
+
+    const dot = token();
+    if (dot.kind !== "DOT") throw new Error(`malformed abstraction: expected DOT, found ${dot.kind}`);
+    nextToken();
+
+    const term = getTerm();
+    return { kind: "ABSTRACTION", ident, type, body: term };
 }
 
