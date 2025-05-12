@@ -31,7 +31,10 @@ export function getTerm(forbidArrow: boolean = false): Term {
             break;
         case "IDENTIFIER": {
             const value = tk.value;
-            if (value === "refl") return { kind: "REFL", arg: getTerm() };
+            if (value === "refl") {
+                nextToken();
+                return { kind: "REFL", arg: getTerm() };
+            }
             if (value.startsWith("pr")) {
                 if (value.length <= 2) {
                     throw new Error("expected at least one index (1 or 2) after pr");
