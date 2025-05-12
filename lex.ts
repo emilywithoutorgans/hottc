@@ -2,8 +2,8 @@ import { readFile } from "fs/promises";
 
 export const EOF: Token = { kind: "EOF" };
 
-const text = await readFile("./main.hott", "utf8");
-
+const text = await readFile("./literate.hott.md", "utf8");
+const literate = true;
 type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "EQUAL" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN" | "COMMA" | "LBRACKET" | "RBRACKET" | "PIPE";
 export type Identifier = { kind: "IDENTIFIER", value: string };
 export type Token = { kind: SimpleTokenName } | { kind: "UN", value: number } | Identifier;
@@ -15,12 +15,9 @@ function popCachedToken() {
     return token;
 }
 
-function lexToken(): Token {
-    skipWhitespace();
-    return lexTokenFromStart();
-}
-
 let p = 0;
+let inCodeBlock = false;
+
 function skipWhitespace() {
     const whitespaceMatch = /^\s+/.exec(text.slice(p));
     if (whitespaceMatch === null) return false;
@@ -28,7 +25,43 @@ function skipWhitespace() {
     return true;
 }
 
+function skipToCodeBlock() {
+    if (literate && !inCodeBlock) {
+        const codeBlockStart = text.indexOf("```hott", p);
+        if (codeBlockStart === -1) {
+            p = text.length;
+            return false;
+        }
+        p = codeBlockStart + 7;
+        inCodeBlock = true;
+        return true;
+    }
+}
+
+function checkCodeBlockEnd() {
+    if (literate && inCodeBlock) {
+        const codeBlockEnd = text.indexOf("```", p);
+        if (codeBlockEnd !== -1 && codeBlockEnd === p) {
+            p += 3;
+            inCodeBlock = false;
+            return true;
+        }
+    }
+    return false;
+}
+
+function lexToken(): Token {
+    skipToCodeBlock();
+    skipWhitespace();
+    if (checkCodeBlockEnd()) {
+        return lexToken();
+    }
+    return lexTokenFromStart();
+}
+
 function lexTokenFromStart(): Token {
+    if (p >= text.length) return EOF;
+
     switch (text[p]) {
         case "U": {
             const unMatch = /^\d+/.exec(text.slice(p + 1));
