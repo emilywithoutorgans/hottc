@@ -4,7 +4,7 @@ export const EOF: Token = { kind: "EOF" };
 
 const text = await readFile("./main.hott", "utf8");
 
-type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN" | "COMMA" | "LBRACKET" | "RBRACKET";
+type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "EQUAL" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN" | "COMMA" | "LBRACKET" | "RBRACKET" | "PIPE";
 export type Identifier = { kind: "IDENTIFIER", value: string };
 export type Token = { kind: SimpleTokenName } | { kind: "UN", value: number } | Identifier;
 
@@ -59,6 +59,9 @@ function lexNonIdentTokenFromStart(): Token | null {
                 return { kind: "ARROW" };
             }
             break;
+        case "|":
+            p++;
+            return { kind: "PIPE" };
         case "\\":
             p++;
             return { kind: "BACKSLASH" };
@@ -90,6 +93,9 @@ function lexNonIdentTokenFromStart(): Token | null {
         case "]":
             p++;
             return { kind: "RBRACKET" };
+        case "=":
+            p++;
+            return { kind: "EQUAL" };
     }
 
     return null;

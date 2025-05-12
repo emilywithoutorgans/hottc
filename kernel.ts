@@ -22,6 +22,12 @@ function betaReduction(term: Term, name: string, sub: Term): Term {
             return { kind: "CALL", base: betaReduction(term.base, name, sub), arg: betaReduction(term.arg, name, sub) };
         case "PR":
             return { kind: "PR", first: term.first, arg: betaReduction(term.arg, name, sub) };
+        case "REFL":
+            return { kind: "REFL", arg: betaReduction(term.arg, name, sub) };
+        case "PATH":
+            return { kind: "PATH", left: betaReduction(term.left, name, sub), type: betaReduction(term.type, name, sub), right: betaReduction(term.right, name, sub) };
+        case "UNIVALENCE":
+            return { kind: "UNIVALENCE", inner: betaReduction(term.inner, name, sub) };
         case "PI": {
             let right;
             if (term.ident?.value === name) {
@@ -79,7 +85,7 @@ function whnormalize(term: Term) {
                 }
             }
             term = result;
-        }
+        } // TODO: transport along refl
     } while (term !== prevTerm)
     return term;
 }
@@ -91,6 +97,19 @@ function getMaxUniverseLevelFromDependentType(term: { left: Term, right: Term, i
     const bx = infer(term.right, newTermContext);
     if (bx.kind !== "UN") throw new Error(`malformed ${typeName} type`);
     return { kind: "UN", level: Math.max(a.level, bx.level) };
+}
+
+function equivalence(a: Term, b: Term): Term {
+    // x: type -> f(g(x)) =[type] x
+    const homotopyCompositionToId = (type: Term, f: Term, g: Term): Term => ({ kind: "PI", ident: { kind: "IDENTIFIER", value: "x" }, left: type, right: { kind: "PATH", left: { kind: "CALL", base: f, arg: { kind: "CALL", base: g, arg: { kind: "IDENTIFIER", value: "x" } } }, type, right: { kind: "IDENTIFIER", value: "x" }} })
+
+    // [g: B -> A, homotopyToId(comp(f, g))]
+    const ghtpy: Term = { kind: "SIGMA", ident: { kind: "IDENTIFIER", value: "g" }, left: { kind: "PI", left: b, right: a }, right: homotopyCompositionToId(b, { kind: "IDENTIFIER", value: "f" }, { kind: "IDENTIFIER", value: "g" }) }
+
+    // [h: B -> A, homotopyToId(comp(h, f))]
+    const hhtpy: Term = { kind: "SIGMA", ident: { kind: "IDENTIFIER", value: "h" }, left: { kind: "PI", left: b, right: a }, right: homotopyCompositionToId(a, { kind: "IDENTIFIER", value: "h" }, { kind: "IDENTIFIER", value: "f" }) }
+
+    return { kind: "SIGMA", left: ghtpy, right: hhtpy };
 }
 
 export function infer(term: Term, termContext: Context): Term {
@@ -121,13 +140,23 @@ export function infer(term: Term, termContext: Context): Term {
             return { kind: "PI", ident: term.ident, left: term.type, right: returnType };
         }
         case "CALL": {
-            // pi elimination
-            // (f: (x: A -> B), a: A) => f(a): B[a / x]
-            const fType = whnormalize(infer(term.base, termContext));
-            if (fType.kind !== "PI") throw new Error("calls only valid on functions");
+            const baseType = whnormalize(infer(term.base, termContext));
             const argType = infer(term.arg, termContext);
-            if (!checkEq(fType.left, argType, {})) throw new Error(`call type mismatch: ${termToString(fType.left)} != ${termToString(argType)}`);
-            return fType.ident ? betaReduction(fType.right, fType.ident.value, term.arg) : fType.right;
+
+            if (baseType.kind === "PI") {
+                // pi elimination
+                // (f: (x: A -> B), a: A) => f(a): B[a / x]
+
+                if (!checkEq(baseType.left, argType, {})) throw new Error(`call type mismatch ${termToString(baseType.left)} != ${termToString(argType)}`);
+                return baseType.ident ? betaReduction(baseType.right, baseType.ident.value, term.arg) : baseType.right;
+            } else if (baseType.kind === "PATH" && argType.kind === "PI") {
+                // transport
+                // (p: a =[A] b, P: (x: A -> U0)) => p(P): P(a) -> P(b)
+
+                if (!checkEq(baseType.type, argType.left, {})) throw new Error("path type mismatch");
+                return { kind: "PI", left: { kind: "CALL", base: term.arg, arg: baseType.left }, right: { kind: "CALL", base: term.arg, arg: baseType.right } };
+            }
+            throw new Error("calls only valid on functions and paths");
         }
         case "SIGMA": {
             // [x: A, B(x)], identical logic to pi
@@ -141,7 +170,6 @@ export function infer(term: Term, termContext: Context): Term {
             const argType = infer(term.arg, termContext);
 
             // we're projecting sigma types here
-
             if (argType.kind !== "SIGMA") throw new Error("can only project tuples");
 
             let result: Term = argType.left; // first projection is easy
@@ -176,10 +204,48 @@ export function infer(term: Term, termContext: Context): Term {
                 return { kind: "SIGMA", left: leftType, right: rightType };
             }
         }
+        case "REFL": 
+            return { kind: "PATH", left: term.arg, type: infer(term.arg, termContext), right: term.arg };
+        case "PATH": 
+            return infer(term.type, termContext);
+        case "UNIVALENCE": {
+            const innerType = infer(term.inner, termContext);
+            if (innerType.kind === "PATH") {
+                const left = innerType.left;
+                const right = innerType.right;
+
+                if (infer(left, termContext).kind !== "UN" || infer(right, termContext).kind !== "UN") 
+                    throw new Error("univalence must be between types");
+
+                // return an equivalence
+                return equivalence(left, right);
+            } else if (innerType.kind === "SIGMA") {
+                // Check if this is an equivalence type
+                if (innerType.left.kind === "SIGMA" && 
+                    innerType.left.left.kind === "PI") {
+                    
+                    const a = innerType.left.left.right;
+                    const aType = infer(a, termContext);
+                    if (aType.kind !== "UN") throw new Error("univalence must be between types"); // hopefully unreachable
+                    const b = innerType.left.left.left;
+                    const bType = infer(b, termContext);
+                    if (bType.kind !== "UN") throw new Error("univalence must be between types");
+
+                    // check if the equivalence is valid
+                    if (checkEq(innerType, equivalence(a, b), {})) {
+                        return { kind: "PATH", left: a, type: { kind: "UN", level: Math.max(aType.level, bType.level) }, right: b };
+                    }
+                }
+            }
+            throw new Error("can only do univalence on paths or equivalences");
+        }
     }
 }
 
-export function checkEq(left: Term, right: Term, context: Record<string, string | null>) {
+function checkEq(left: Term, right: Term, context: Record<string, string | null>) {
+    left = whnormalize(left);
+    right = whnormalize(right);
+
     function assume(left: Identifier | undefined, right: Identifier | undefined) {
         if (left !== undefined && right !== undefined) {
             // assume that the idents are equal
@@ -237,6 +303,22 @@ export function checkEq(left: Term, right: Term, context: Record<string, string 
                 return true;
             }
         }
+    } else if (left.kind === "REFL" && right.kind === "REFL") {
+        if (checkEq(left.arg, right.arg, context)) {
+            return true;
+        }
+    } else if (left.kind === "UNIVALENCE" && right.kind === "UNIVALENCE") {
+        if (checkEq(left.inner, right.inner, context)) {
+            return true;
+        }
+    } else if (left.kind === "PATH" && right.kind === "PATH") {
+        if (checkEq(left.left, right.left, context)) {
+            if (checkEq(left.type, right.type, context)) {
+                if (checkEq(left.right, right.right, context)) {
+                    return true;
+                }
+            }
+        }
     } else if (left.kind === "CALL" && right.kind === "CALL") {
         if (checkEq(left.base, right.base, context)) {
             if (checkEq(left.arg, right.arg, context)) {
@@ -266,9 +348,7 @@ export function check(term: Term, termContext: Context, type: Term, typeContext:
     if (checkEq(inferred, type, typeContext)) {
         return true;
     }
-    const lnormal = whnormalize(inferred);
-    const rnormal = whnormalize(type);
-    if (lnormal.kind === "UN" && rnormal.kind === "UN") {
-        return lnormal.level <= rnormal.level;
+    if (inferred.kind === "UN" && type.kind === "UN") {
+        return inferred.level <= type.level;
     }
 }

@@ -6,12 +6,19 @@ x: U1 -> U1: U2.
 \T: U0. \x: T. x: T: U0 -> T -> T.
 (\T: U0. \x: T. x)(1, *): 1.
 
-(\A: U0. \B: A -> U0. \C: U0. 
+\A: U0. \B: A -> U0. \C: U0. 
     \g: x: A -> B(x) -> C. 
     \p: [x: A, B(x)]. 
-        g(pr1 p, pr2 p)): 
+        g(pr1 p, pr2 p): 
 
 A: U0 -> B: (A -> U0) -> C: U0 -> 
     (x: A -> B(x) -> C) -> 
     [x: A, B(x)] -> 
         C.
+
+\A: U0. \x: A. \y: A. \z: A.
+    \p: x =[A] y. \q: y =[A] z.
+        q(\w: A. x =[A] w, p):
+
+A: U0 -> x: A -> y: A -> z: A -> 
+    x =[A] y -> y =[A] z -> x =[A] z.

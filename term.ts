@@ -10,7 +10,10 @@ export type Term =
     | { kind: "CALL", base: Term, arg: Term }
     | { kind: "SIGMA", ident?: Identifier, left: Term, right: Term }
     | { kind: "TUPLE", ident?: Identifier, left: Term, right: Term }
-    | { kind: "PR", first: boolean, arg: Term };
+    | { kind: "PR", first: boolean, arg: Term }
+    | { kind: "REFL", arg: Term }
+    | { kind: "PATH", left: Term, right: Term, type: Term }
+    | { kind: "UNIVALENCE", inner: Term };
 
 export function getTerm(forbidArrow: boolean = false): Term {
     const tk = token();
@@ -28,6 +31,7 @@ export function getTerm(forbidArrow: boolean = false): Term {
             break;
         case "IDENTIFIER": {
             const value = tk.value;
+            if (value === "refl") return { kind: "REFL", arg: getTerm() };
             if (value.startsWith("pr")) {
                 if (value.length <= 2) {
                     throw new Error("expected at least one index (1 or 2) after pr");
@@ -52,6 +56,11 @@ export function getTerm(forbidArrow: boolean = false): Term {
         case "STAR":
             result = { kind: "SINGLETON" };
             break;
+        case "PIPE":
+            nextToken();
+            result = { kind: "UNIVALENCE", inner: getTerm() };
+            if (token().kind !== "PIPE") throw new Error("expected |");
+            break;
         case "LPAREN": {
             nextToken();
             const first = getTerm();
@@ -75,6 +84,7 @@ export function getTerm(forbidArrow: boolean = false): Term {
 
     nextToken();
 
+
     // test for calls
     while (token().kind === "LPAREN") {
         nextToken();
@@ -87,7 +97,15 @@ export function getTerm(forbidArrow: boolean = false): Term {
         nextToken();
     }
 
-    console.log("starting at base", termToString(result), token())
+    if (token().kind === "EQUAL") {
+        nextToken();
+        if (token().kind !== "LBRACKET") throw new Error("expected [");
+        nextToken();
+        const type = getTerm();
+        if (token().kind !== "RBRACKET") throw new Error("expected ]");
+        nextToken();
+        result = { kind: "PATH", left: result, type, right: getTerm(true) };
+    }
 
     // test for -> and pi type
     if (!forbidArrow) {
@@ -101,8 +119,6 @@ export function getTerm(forbidArrow: boolean = false): Term {
         }
 
         rollback(p0); // unnecessary in some cases
-        console.log(p0);
-        console.log("rolling back to", termToString(result), token());
     }
 
     return result;
@@ -173,7 +189,6 @@ function getTuple(left: Term): Term {
 
 function getProduct(left: Term): Term {
     let ident: Identifier | undefined = undefined;
-    console.log("getProduct", token());
     if (token().kind === "COLON") {
         nextToken();
         if (left.kind !== "IDENTIFIER") {
