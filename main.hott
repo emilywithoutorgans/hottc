@@ -10,7 +10,6 @@ x: U1 -> U1: U2.
     \g: x: A -> B(x) -> C. 
     \p: [x: A, B(x)]. 
         g(pr1 p, pr2 p): 
-
 A: U0 -> B: (A -> U0) -> C: U0 -> 
     (x: A -> B(x) -> C) -> 
     [x: A, B(x)] -> 
@@ -19,6 +18,5 @@ A: U0 -> B: (A -> U0) -> C: U0 ->
 \A: U0. \x: A. \y: A. \z: A.
     \p: x =[A] y. \q: y =[A] z.
         q(\w: A. x =[A] w, p):
-
 A: U0 -> x: A -> y: A -> z: A -> 
     x =[A] y -> y =[A] z -> x =[A] z.

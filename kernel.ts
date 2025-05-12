@@ -72,6 +72,11 @@ function whnormalize(term: Term) {
         prevTerm = term;
         if (term.kind === "CALL" && term.base.kind === "ABSTRACTION") {
             term = betaReduction(term.base.body, term.base.ident.value, term.arg);
+        } else if (term.kind === "CALL" && term.base.kind === "CALL" && term.base.base.kind === "REFL") {
+            // (refl x)(P)(Px) = Px
+            const Px = term.arg;
+            // not sure if we're supposed to check Px: P(x) here
+            term = Px;
         } else if (term.kind === "PR" && term.arg.kind === "TUPLE") {
             // projecting a term here
             let result: Term = term.arg.left; // first projection is easy
@@ -85,7 +90,7 @@ function whnormalize(term: Term) {
                 }
             }
             term = result;
-        } // TODO: transport along refl
+        }
     } while (term !== prevTerm)
     return term;
 }
@@ -147,7 +152,7 @@ export function infer(term: Term, termContext: Context): Term {
                 // pi elimination
                 // (f: (x: A -> B), a: A) => f(a): B[a / x]
 
-                if (!checkEq(baseType.left, argType, {})) throw new Error(`call type mismatch ${termToString(baseType.left)} != ${termToString(argType)}`);
+                if (!checkEq(baseType.left, argType, {})) throw new Error("call type mismatch");
                 return baseType.ident ? betaReduction(baseType.right, baseType.ident.value, term.arg) : baseType.right;
             } else if (baseType.kind === "PATH" && argType.kind === "PI") {
                 // transport
