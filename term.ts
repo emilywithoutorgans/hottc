@@ -1,6 +1,16 @@
-import { andMove, Identifier, mark, nextToken, rollback, Token, token } from "./lex.js";
+import { Identifier, log, mark, nextToken, rollback, Token, token } from "./lex.js";
 
-export type Term = { kind: "ZERO" | "ONE" } | { kind: "UN", level: number } | Identifier | { kind: "PI", ident?: Identifier, left: Term, right: Term } | { kind: "SINGLETON" } | { kind: "ABSTRACTION", ident: Identifier, type?: Term, body: Term } | { kind: "CALL", base: Term, arg: Term };
+export type Term =
+    | { kind: "SINGLETON" }
+    | { kind: "ZERO" | "ONE" }
+    | { kind: "UN", level: number }
+    | Identifier
+    | { kind: "PI", ident?: Identifier, left: Term, right: Term }
+    | { kind: "ABSTRACTION", ident: Identifier, type: Term, body: Term }
+    | { kind: "CALL", base: Term, arg: Term }
+    | { kind: "SIGMA", ident?: Identifier, left: Term, right: Term }
+    | { kind: "TUPLE", ident?: Identifier, left: Term, right: Term }
+    | { kind: "PR", first: boolean, arg: Term };
 
 export function getTerm(forbidArrow: boolean = false): Term {
     const tk = token();
@@ -16,19 +26,45 @@ export function getTerm(forbidArrow: boolean = false): Term {
         case "ONE":
             result = { kind: "ONE" };
             break;
-        case "IDENTIFIER":
-            result = { kind: "IDENTIFIER", value: tk.value };
+        case "IDENTIFIER": {
+            const value = tk.value;
+            if (value.startsWith("pr")) {
+                if (value.length <= 2) {
+                    throw new Error("expected at least one index (1 or 2) after pr");
+                }
+                
+                nextToken();
+                let result = getTerm();
+                
+                for (let i = 2; i < value.length; i++) {
+                    const digit = value[i];
+                    if (digit !== "1" && digit !== "2") {
+                        throw new Error(`expected 1 or 2, found ${digit}`);
+                    }
+                    result = { kind: "PR", first: digit === "1", arg: result };
+                }
+                
+                return result;
+            }
+            result = { kind: "IDENTIFIER", value };
             break;
+        }
         case "STAR":
             result = { kind: "SINGLETON" };
             break;
         case "LPAREN": {
             nextToken();
-            const term = getTerm();
-            if (token().kind !== "RPAREN") {
-                throw new Error("expected )");
+            const first = getTerm();
+            if (token().kind === "RPAREN") {
+                result = first;
+            } else {
+                result = getTuple(first);
             }
-            result = term;
+            break;
+        }
+        case "LBRACKET": {
+            nextToken();
+            result = getProduct(getTerm());
             break;
         }
         case "BACKSLASH":
@@ -38,6 +74,20 @@ export function getTerm(forbidArrow: boolean = false): Term {
     }
 
     nextToken();
+
+    // test for calls
+    while (token().kind === "LPAREN") {
+        nextToken();
+        do {
+            result = { kind: "CALL", base: result, arg: getTerm() };
+        } while (token().kind === "COMMA" && nextToken())
+        if (token().kind !== "RPAREN") {
+            throw new Error("expected )");
+        }
+        nextToken();
+    }
+
+    console.log("starting at base", termToString(result), token())
 
     // test for -> and pi type
     if (!forbidArrow) {
@@ -51,18 +101,8 @@ export function getTerm(forbidArrow: boolean = false): Term {
         }
 
         rollback(p0); // unnecessary in some cases
-    }
-
-    // test for calls
-    while (token().kind === "LPAREN") {
-        nextToken();
-        do {
-            result = { kind: "CALL", base: result, arg: getTerm() };
-        } while (token().kind === "COMMA" && nextToken())
-        if (token().kind !== "RPAREN") {
-            throw new Error("expected )");
-        }
-        nextToken();
+        console.log(p0);
+        console.log("rolling back to", termToString(result), token());
     }
 
     return result;
@@ -98,12 +138,10 @@ function getAbstraction(): Term {
     const ident = nextToken();
     if (ident.kind !== "IDENTIFIER") throw new Error(`malformed abstraction: expected IDENTIFIER, found ${ident.kind}`);
 
-    let type: Term | undefined = undefined;
+    if (nextToken().kind !== "COLON") throw new Error(`malformed abstraction: expected type after identifier`);
+    nextToken();
 
-    if (nextToken().kind === "COLON") {
-        nextToken();
-        type = getTerm();
-    }
+    const type = getTerm();
 
     const dot = token();
     if (dot.kind !== "DOT") throw new Error(`malformed abstraction: expected DOT, found ${dot.kind}`);
@@ -113,3 +151,43 @@ function getAbstraction(): Term {
     return { kind: "ABSTRACTION", ident, type, body: term };
 }
 
+function getTuple(left: Term): Term {
+    let ident: Identifier | undefined = undefined;
+    if (token().kind === "COLONEQUAL") {
+        nextToken();
+        if (left.kind !== "IDENTIFIER") {
+            throw new Error("expected identifier before := in tuple binding");
+        }
+        ident = left;
+        left = getTerm();
+    }
+    if (token().kind === "COMMA") {
+        nextToken();
+        return { kind: "TUPLE", ident, left, right: getTuple(getTerm()) };
+    }
+    if (token().kind !== "RPAREN") {
+        throw new Error("expected )");
+    }
+    return left;
+}
+
+function getProduct(left: Term): Term {
+    let ident: Identifier | undefined = undefined;
+    console.log("getProduct", token());
+    if (token().kind === "COLON") {
+        nextToken();
+        if (left.kind !== "IDENTIFIER") {
+            throw new Error("expected identifier before : in product type");
+        }
+        ident = left;
+        left = getTerm();
+    }
+    if (token().kind === "COMMA") {
+        nextToken();
+        return { kind: "SIGMA", ident, left, right: getProduct(getTerm()) };
+    }
+    if (token().kind !== "RBRACKET") {
+        throw new Error("expected ]");
+    }
+    return left;
+}

@@ -1,5 +1,5 @@
 import { check } from "./kernel.js";
-import { nextToken, mark, rollback, EOF, Identifier, token } from "./lex.js";
+import { nextToken, mark, rollback, EOF, Identifier, token, log } from "./lex.js";
 import { getTerm, Term } from "./term.js";
 
 function judgement() {
@@ -45,8 +45,12 @@ function judgement() {
 
     return true;
 }
-
-while (judgement());
+try {
+    while (judgement());
+} catch (e) {
+    console.error(e);
+    log();
+}
 
 
 

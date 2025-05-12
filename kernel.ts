@@ -1,8 +1,10 @@
 import { Term } from "./term.js";
+import { Identifier } from "./lex.js";
 
 type Judgement = { kind: "TYPE", value: Term };
 type Context = Record<string, Judgement>;
 
+// normalize calls
 function betaReduction(term: Term, name: string, sub: Term): Term {
     switch (term.kind) {
         case "ZERO":
@@ -10,26 +12,52 @@ function betaReduction(term: Term, name: string, sub: Term): Term {
         case "UN":
         case "SINGLETON":
             return term;
-        case "CALL":
-            return { kind: "CALL", base: betaReduction(term.base, name, sub), arg: betaReduction(term.arg, name, sub) };
         case "IDENTIFIER":
             if (term.value === name) {
                 return sub;
             } else {
                 return term;
             }
-        case "ABSTRACTION":
-            if (term.ident.value === name) {
-                return term;
-            } else {
-                return { kind: "ABSTRACTION", ident: term.ident, body: betaReduction(term.body, name, sub) };
-            }
-        case "PI":
+        case "CALL":
+            return { kind: "CALL", base: betaReduction(term.base, name, sub), arg: betaReduction(term.arg, name, sub) };
+        case "PR":
+            return { kind: "PR", first: term.first, arg: betaReduction(term.arg, name, sub) };
+        case "PI": {
+            let right;
             if (term.ident?.value === name) {
-                return term;
+                right = term.right;
             } else {
-                return { kind: "PI", ident: term.ident, left: betaReduction(term.left, name, sub), right: betaReduction(term.right, name, sub) };
+                right = betaReduction(term.right, name, sub);
             }
+            return { kind: "PI", ident: term.ident, left: betaReduction(term.left, name, sub), right };
+        }
+        case "ABSTRACTION": {
+            let body;
+            if (term.ident.value === name) {
+                body = term.body;
+            } else {
+                body = betaReduction(term.body, name, sub);
+            }
+            return { kind: "ABSTRACTION", ident: term.ident, type: betaReduction(term.type, name, sub), body };
+        }
+        case "SIGMA": {
+            let right;
+            if (term.ident?.value === name) {
+                right = term.right;
+            } else {
+                right = betaReduction(term.right, name, sub);
+            }
+            return { kind: "SIGMA", ident: term.ident, left: betaReduction(term.left, name, sub), right };
+        }
+        case "TUPLE": {
+            let right;
+            if (term.ident?.value === name) {
+                right = term.right;
+            } else {
+                right = betaReduction(term.right, name, sub);
+            }
+            return { kind: "TUPLE", ident: term.ident, left: betaReduction(term.left, name, sub), right };
+        }
     }
 }
 
@@ -38,9 +66,31 @@ function whnormalize(term: Term) {
         prevTerm = term;
         if (term.kind === "CALL" && term.base.kind === "ABSTRACTION") {
             term = betaReduction(term.base.body, term.base.ident.value, term.arg);
+        } else if (term.kind === "PR" && term.arg.kind === "TUPLE") {
+            // projecting a term here
+            let result: Term = term.arg.left; // first projection is easy
+            if (!term.first) {
+                if (term.arg.ident === undefined) {
+                    // (a, b)
+                    result = term.arg.right; // if it's not dependent, second projection is easy
+                } else {
+                    // (x := a, b) where b may depend on x
+                    result = betaReduction(term.arg.right, term.arg.ident.value, term.arg.left);
+                }
+            }
+            term = result;
         }
     } while (term !== prevTerm)
     return term;
+}
+
+function getMaxUniverseLevelFromDependentType(term: { left: Term, right: Term, ident?: Identifier }, termContext: Context, typeName: string): Term {
+    const a = infer(term.left, termContext);
+    if (a.kind !== "UN") throw new Error(`malformed ${typeName} type`);
+    const newTermContext: Context = term.ident ? { ...termContext, [term.ident.value]: { kind: "TYPE", value: term.left } } : termContext;
+    const bx = infer(term.right, newTermContext);
+    if (bx.kind !== "UN") throw new Error(`malformed ${typeName} type`);
+    return { kind: "UN", level: Math.max(a.level, bx.level) };
 }
 
 export function infer(term: Term, termContext: Context): Term {
@@ -57,16 +107,12 @@ export function infer(term: Term, termContext: Context): Term {
         }
         case "PI": {
             // x: A -> B(x)
-            const a = infer(term.left, termContext);
-            if (a.kind !== "UN") throw new Error("malformed pi type");
-            const newTermContext: Context = term.ident ? { ...termContext, [term.ident.value]: { kind: "TYPE", value: term.left } } : termContext;
-            const bx = infer(term.right, newTermContext);
-            if (bx.kind !== "UN") throw new Error("malformed pi type");
-            return { kind: "UN", level: Math.max(a.level, bx.level) };
+            return getMaxUniverseLevelFromDependentType(term, termContext, "pi");
         }
         case "ABSTRACTION": {
+            // \x: A. B(x)
+            // x: A -> typeof B(x)
             // pruning not implemented
-            if (term.type === undefined) throw new Error("type cannot be inferred");
             const normalizedKind = whnormalize(infer(term.type, termContext));
             if (normalizedKind.kind !== "UN") throw new Error("must be a type");
             const judgement: Judgement = { kind: "TYPE", value: term.type };
@@ -80,13 +126,73 @@ export function infer(term: Term, termContext: Context): Term {
             const fType = whnormalize(infer(term.base, termContext));
             if (fType.kind !== "PI") throw new Error("calls only valid on functions");
             const argType = infer(term.arg, termContext);
-            if (!checkEq(fType.left, argType, {})) throw new Error("call type mismatch");
+            if (!checkEq(fType.left, argType, {})) throw new Error(`call type mismatch: ${termToString(fType.left)} != ${termToString(argType)}`);
             return fType.ident ? betaReduction(fType.right, fType.ident.value, term.arg) : fType.right;
+        }
+        case "SIGMA": {
+            // [x: A, B(x)], identical logic to pi
+            return getMaxUniverseLevelFromDependentType(term, termContext, "sigma");
+        }
+        case "PR": {
+            // sigma projection
+            // p: [x: A, B] => pr1 p: A
+            // p: [x: A, B] => pr2 p: B[pr1 p / x]
+
+            const argType = infer(term.arg, termContext);
+
+            // we're projecting sigma types here
+
+            if (argType.kind !== "SIGMA") throw new Error("can only project tuples");
+
+            let result: Term = argType.left; // first projection is easy
+            if (!term.first) {
+                if (argType.ident === undefined) {
+                    result = argType.right; // if it's not dependent, second projection is easy
+                } else {
+                    // pr1 arg
+                    // [x: A, B(x)]
+                    // replace x with pr1(arg)
+                    const sub = whnormalize({ kind: "PR", first: true, arg: term.arg });
+                    result = betaReduction(argType.right, argType.ident.value, sub);
+                }
+            }
+
+            return result;
+        }
+        case "TUPLE": {
+            if (term.ident !== undefined) {
+                // given y: A,
+                // (x := y, B(x))
+                // [x: A, B(x)]
+                // identical to abstraction logic
+                const leftType = infer(term.left, termContext);
+                const judgement: Judgement = { kind: "TYPE", value: leftType };
+                const newTermContext: Context = { ...termContext, [term.ident.value]: judgement };
+                const rightType = infer(term.right, newTermContext);
+                return { kind: "SIGMA", ident: term.ident, left: leftType, right: rightType };
+            } else {
+                const leftType = infer(term.left, termContext);
+                const rightType = infer(term.right, termContext);
+                return { kind: "SIGMA", left: leftType, right: rightType };
+            }
         }
     }
 }
 
 export function checkEq(left: Term, right: Term, context: Record<string, string | null>) {
+    function assume(left: Identifier | undefined, right: Identifier | undefined) {
+        if (left !== undefined && right !== undefined) {
+            // assume that the idents are equal
+            return { ...context, [left.value]: right.value };
+        } else if (left !== undefined) {
+            return { ...context, [left.value]: null };
+        } else if (right !== undefined) {
+            return { ...context, [right.value]: null };
+        }
+        return context;
+    }
+
+
     if (left.kind === "ZERO" && right.kind === "ZERO") {
         return true;
     } else if (left.kind === "ONE" && right.kind === "ONE") {
@@ -98,21 +204,42 @@ export function checkEq(left: Term, right: Term, context: Record<string, string 
             return true;
         }
     } else if (left.kind === "PI" && right.kind === "PI") {
-        // check the ident types
-        let newContext = context;
-        if (!!left.ident === !!right.ident) {
-            if (left.ident !== undefined) {
-                // assume that the idents are equal
-                newContext = { ...context, [left.ident.value]: right.ident!.value };
-            }
-        } else if (left.ident !== undefined) {
-            newContext = { ...context, [left.ident.value]: null };
-        } else if (right.ident !== undefined) {
-            newContext = { ...context, [right.ident.value]: null };
-        }
-
         if (checkEq(left.left, right.left, context)) {
+            const newContext = assume(left.ident, right.ident);
             if (checkEq(left.right, right.right, newContext)) {
+                return true;
+            }
+        }
+    } else if (left.kind === "ABSTRACTION" && right.kind === "ABSTRACTION") {
+        if (checkEq(left.type, right.type, context)) {
+            const newContext = assume(left.ident, right.ident);
+            if (checkEq(left.body, right.body, newContext)) {
+                return true;
+            }
+        }
+    } else if (left.kind === "SIGMA" && right.kind === "SIGMA") {
+        if (checkEq(left.left, right.left, context)) {
+            const newContext = assume(left.ident, right.ident);
+            if (checkEq(left.right, right.right, newContext)) {
+                return true;
+            }
+        }
+    } else if (left.kind === "TUPLE" && right.kind === "TUPLE") {
+        if (checkEq(left.left, right.left, context)) {
+            const newContext = assume(left.ident, right.ident);
+            if (checkEq(left.right, right.right, newContext)) {
+                return true;
+            }
+        }
+    } else if (left.kind === "PR" && right.kind === "PR") {
+        if (left.first === right.first) {
+            if (checkEq(left.arg, right.arg, context)) {
+                return true;
+            }
+        }
+    } else if (left.kind === "CALL" && right.kind === "CALL") {
+        if (checkEq(left.base, right.base, context)) {
+            if (checkEq(left.arg, right.arg, context)) {
                 return true;
             }
         }

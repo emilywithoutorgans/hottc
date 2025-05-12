@@ -4,7 +4,7 @@ export const EOF: Token = { kind: "EOF" };
 
 const text = await readFile("./main.hott", "utf8");
 
-type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN" | "COMMA";
+type SimpleTokenName = "EOF" | "ZERO" | "ONE" | "ARROW" | "BACKSLASH" | "STAR" | "COLONEQUAL" | "COLON" | "DOT" | "LPAREN" | "RPAREN" | "COMMA" | "LBRACKET" | "RBRACKET";
 export type Identifier = { kind: "IDENTIFIER", value: string };
 export type Token = { kind: SimpleTokenName } | { kind: "UN", value: number } | Identifier;
 
@@ -13,11 +13,6 @@ function popCachedToken() {
     const token = cachedToken;
     cachedToken = null;
     return token;
-}
-
-export function andMove<T>(t: T): T {
-    nextToken();
-    return t;
 }
 
 function lexToken(): Token {
@@ -34,17 +29,7 @@ function skipWhitespace() {
 }
 
 function lexTokenFromStart(): Token {
-    const token = lexNonIdentTokenFromStart();
-    if (token) return token;
-    return lexIdent();
-}
-
-function lexNonIdentTokenFromStart(): Token | null {
-    if (p >= text.length) return EOF; // no more tokens to find
-
-    const char = text[p];
-
-    switch (char) {
+    switch (text[p]) {
         case "U": {
             const unMatch = /^\d+/.exec(text.slice(p + 1));
             if (unMatch) {
@@ -58,6 +43,16 @@ function lexNonIdentTokenFromStart(): Token | null {
         case "1":
             p++;
             return { kind: "ONE" };
+    }
+    const token = lexNonIdentTokenFromStart();
+    if (token) return token;
+    return lexIdent();
+}
+
+function lexNonIdentTokenFromStart(): Token | null {
+    if (p >= text.length) return EOF; // no more tokens to find
+
+    switch (text[p]) {
         case "-":
             if (text[p + 1] === ">") {
                 p += 2;
@@ -89,6 +84,12 @@ function lexNonIdentTokenFromStart(): Token | null {
         case ",":
             p++;
             return { kind: "COMMA" };
+        case "[":
+            p++;
+            return { kind: "LBRACKET" };
+        case "]":
+            p++;
+            return { kind: "RBRACKET" };
     }
 
     return null;
@@ -114,8 +115,9 @@ function lexIdent(): Token {
         return popCachedToken()!;
     }
 
-    return { kind: 'IDENTIFIER', value: text.slice(start, end) };
+    return { kind: "IDENTIFIER", value: text.slice(start, end) };
 }
+
 
 let currentToken: Token = lexToken();
 export function token(): Token {
@@ -126,11 +128,16 @@ export function nextToken(): Token {
     return (currentToken = popCachedToken() || lexToken());
 }
 
-type State = [number, Token | null];
+type State = [number, Token, Token | null];
 export function mark(): State {
-    return [p, cachedToken];
+    return [p, currentToken, cachedToken];
 }
 
 export function rollback(save: State) {
-    [p, cachedToken] = save;
+    [p, currentToken, cachedToken] = save;
+}
+
+export function log() {
+    console.log("current token", currentToken);
+    console.log("remaining text", text.slice(p));
 }
